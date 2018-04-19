@@ -5,12 +5,12 @@ import (
 	"errors"
 	"strconv"
 
-	"github.com/elastos/Elastos.ELA/log"
+	"Elastos.ELA/common/log"
 	. "github.com/elastos/Elastos.ELA/net/protocol"
 )
 
 type verACK struct {
-	Hdr
+	messageHeader
 	// No payload
 }
 
@@ -19,9 +19,9 @@ func NewVerack() ([]byte, error) {
 	// Fixme the check is the []byte{0} instead of 0
 	var sum []byte
 	sum = []byte{0x5d, 0xf6, 0xe0, 0xe2}
-	msg.Hdr.init("verack", sum, 0)
+	msg.messageHeader.init("verack", sum, 0)
 
-	buf, err := msg.Serialize()
+	buf, err := msg.Serialization()
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +52,7 @@ func NewVerack() ([]byte, error) {
 // TODO The process should be adjusted based on above table
 func (msg verACK) Handle(node Noder) error {
 
-	s := node.State()
+	s := node.GetState()
 	if s != HandShake && s != HandShaked {
 		log.Warn("Unknow status to received verack")
 		return errors.New("Unknow status to received verack")
@@ -72,8 +72,8 @@ func (msg verACK) Handle(node Noder) error {
 	if node.LocalNode().NeedMoreAddresses() {
 		node.ReqNeighborList()
 	}
-	addr := node.Addr()
-	port := node.Port()
+	addr := node.GetAddr()
+	port := node.GetPort()
 	nodeAddr := addr + ":" + strconv.Itoa(int(port))
 	node.LocalNode().RemoveAddrInConnectingList(nodeAddr)
 	return nil

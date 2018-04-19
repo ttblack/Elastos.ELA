@@ -5,15 +5,15 @@ import (
 	"encoding/binary"
 	"errors"
 
-	"github.com/elastos/Elastos.ELA/log"
-	chain "github.com/elastos/Elastos.ELA/blockchain"
-	. "github.com/elastos/Elastos.ELA/net/protocol"
 
-	. "github.com/elastos/Elastos.ELA.Utility/common"
+	. "Elastos.ELA/common"
+	"Elastos.ELA/common/log"
+	"Elastos.ELA/core/ledger"
+	. "github.com/elastos/Elastos.ELA/net/protocol"
 )
 
 type blocksReq struct {
-	Hdr
+	messageHeader
 	p struct {
 		len       uint32
 		hashStart []Uint256
@@ -31,7 +31,7 @@ func (msg blocksReq) Handle(node Noder) error {
 	var stopHash [HASHLEN]byte
 	locatorHash = msg.p.hashStart
 	stopHash = msg.p.hashEnd
-	startHash = chain.DefaultLedger.Blockchain.LatestLocatorHash(locatorHash)
+	startHash = ledger.DefaultLedger.Blockchain.LatestLocatorHash(locatorHash)
 	inv, err := GetInvFromBlockHash(startHash, stopHash)
 	if err != nil {
 		return err
@@ -44,8 +44,8 @@ func (msg blocksReq) Handle(node Noder) error {
 	return nil
 }
 
-func (msg blocksReq) Serialize() ([]byte, error) {
-	hdrBuf, err := msg.Hdr.Serialize()
+func (msg blocksReq) Serialization() ([]byte, error) {
+	hdrBuf, err := msg.messageHeader.Serialization()
 	if err != nil {
 		return nil, err
 	}
@@ -63,9 +63,9 @@ func (msg blocksReq) Serialize() ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-func (msg *blocksReq) Deserialize(p []byte) error {
+func (msg *blocksReq) Deserialization(p []byte) error {
 	buf := bytes.NewBuffer(p)
-	err := binary.Read(buf, binary.LittleEndian, &(msg.Hdr))
+	err := binary.Read(buf, binary.LittleEndian, &(msg.messageHeader))
 	if err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func GetInvFromBlockHash(startHash Uint256, stopHash Uint256) (*InvPayload, erro
 	var empty Uint256
 	var startHeight uint32
 	var stopHeight uint32
-	curHeight := chain.DefaultLedger.Store.GetHeight()
+	curHeight := ledger.DefaultLedger.Store.GetHeight()
 	if stopHash == empty {
 		if startHash == empty {
 			if curHeight > MAXINVHDRCNT {
@@ -104,28 +104,28 @@ func GetInvFromBlockHash(startHash Uint256, stopHash Uint256) (*InvPayload, erro
 				count = curHeight
 			}
 		} else {
-			bkstart, err := chain.DefaultLedger.Store.GetHeader(startHash)
+			bkstart, err := ledger.DefaultLedger.Store.GetHeader(startHash)
 			if err != nil {
 				return nil, err
 			}
-			startHeight = bkstart.Height
+			startHeight = bkstart.Blockdata.Height
 			count = curHeight - startHeight
 			if count > MAXINVHDRCNT {
 				count = MAXINVHDRCNT
 			}
 		}
 	} else {
-		bkstop, err := chain.DefaultLedger.Store.GetHeader(stopHash)
+		bkstop, err := ledger.DefaultLedger.Store.GetHeader(stopHash)
 		if err != nil {
 			return nil, err
 		}
-		stopHeight = bkstop.Height
+		stopHeight = bkstop.Blockdata.Height
 		if startHash != empty {
-			bkstart, err := chain.DefaultLedger.Store.GetHeader(startHash)
+			bkstart, err := ledger.DefaultLedger.Store.GetHeader(startHash)
 			if err != nil {
 				return nil, err
 			}
-			startHeight = bkstart.Height
+			startHeight = bkstart.Blockdata.Height
 
 			// avoid unsigned integer underflow
 			if stopHeight < startHeight {
@@ -149,13 +149,12 @@ func GetInvFromBlockHash(startHash Uint256, stopHash Uint256) (*InvPayload, erro
 	var i uint32
 	for i = 1; i <= count; i++ {
 		//FIXME need add error handle for GetBlockWithHash
-		hash, _ := chain.DefaultLedger.Store.GetBlockHash(startHeight + i)
+		hash, _ := ledger.DefaultLedger.Store.GetBlockHash(startHeight + i)
 		hash.Serialize(tmpBuffer)
 	}
 
 	return &InvPayload{
-		Type: BLOCK,
-		Cnt:  count,
-		Blk:  tmpBuffer.Bytes(),
+		Cnt: count,
+		Blk: tmpBuffer.Bytes(),
 	}, nil
 }

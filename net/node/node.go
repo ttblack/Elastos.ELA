@@ -1,10 +1,7 @@
 package node
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"errors"
-	"encoding/binary"
 	"fmt"
 	"net"
 	"runtime"
@@ -13,17 +10,18 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"encoding/binary"
+	"bytes"
+	"crypto/sha256"
 
-	chain "github.com/elastos/Elastos.ELA/blockchain"
-	. "github.com/elastos/Elastos.ELA/config"
-	"github.com/elastos/Elastos.ELA/log"
+	. "Elastos.ELA/common"
+	. "Elastos.ELA/common/config"
+	"Elastos.ELA/common/log"
+	"Elastos.ELA/core/ledger"
+	"Elastos.ELA/core/transaction"
 	"github.com/elastos/Elastos.ELA/events"
 	. "github.com/elastos/Elastos.ELA/net/message"
 	. "github.com/elastos/Elastos.ELA/net/protocol"
-
-	"github.com/elastos/Elastos.ELA.Utility/bloom"
-	. "github.com/elastos/Elastos.ELA.Utility/core"
-	. "github.com/elastos/Elastos.ELA.Utility/common"
 )
 
 type Semaphore chan struct{}
@@ -37,23 +35,22 @@ func (s Semaphore) release() { <-s }
 
 type node struct {
 	//sync.RWMutex	//The Lock not be used as expected to use function channel instead of lock
-	state    uint32 // node state
-	id       uint64 // The nodes's id
-	version  uint32 // The network protocol the node used
-	services uint64 // The services the node supplied
-	relay    bool   // The relay capability of the node (merge into capbility flag)
-	height   uint64 // The node latest block height
-	txnCnt   uint64 // The transactions be transmit by this node
-	rxTxnCnt uint64 // The transaction received by this node
+	state    uint32   // node state
+	id       uint64   // The nodes's id
+	version  uint32   // The network protocol the node used
+	services uint64   // The services the node supplied
+	relay    bool     // The relay capability of the node (merge into capbility flag)
+	height   uint64   // The node latest block height
+	txnCnt   uint64   // The transactions be transmit by this node
+	rxTxnCnt uint64   // The transaction received by this node
 	// TODO does this channel should be a buffer channel
-	chF    chan func() error // Channel used to operate the node without lock
-	link                     // The link status and infomation
-	local  *node             // The pointer to local node
-	nbrNodes                 // The neighbor node connect with currently node except itself
-	eventQueue               // The event queue to notice notice other modules
-	chain.TxPool             // Unconfirmed transaction pool
-	idCache                  // The buffer to store the id of the items which already be processed
-	filter *bloom.Filter     // The bloom filter of a spv node
+	chF   chan func() error // Channel used to operate the node without lock
+	link                    // The link status and infomation
+	local *node             // The pointer to local node
+	nbrNodes                // The neighbor node connect with currently node except itself
+	eventQueue              // The event queue to notice notice other modules
+	TXNPool                 // Unconfirmed transaction pool
+	idCache                 // The buffer to store the id of the items which already be processed
 	/*
 	 * |--|--|--|--|--|--|isSyncFailed|isSyncHeaders|
 	 */
@@ -97,9 +94,9 @@ func (node *node) IsAddrInNbrList(addr string) bool {
 	node.nbrNodes.RLock()
 	defer node.nbrNodes.RUnlock()
 	for _, n := range node.nbrNodes.List {
-		if n.State() == Hand || n.State() == HandShake || n.State() == Establish {
-			addr := n.Addr()
-			port := n.Port()
+		if n.GetState() == Hand || n.GetState() == HandShake || n.GetState() == Establish {
+			addr := n.GetAddr()
+			port := n.GetPort()
 			na := addr + ":" + strconv.Itoa(int(port))
 			if strings.Compare(na, addr) == 0 {
 				return true
@@ -151,9 +148,8 @@ func (node *node) UpdateInfo(t time.Time, version uint32, services uint64,
 
 func NewNode() *node {
 	n := node{
-		state:  Init,
-		filter: new(bloom.Filter),
-		chF:    make(chan func() error),
+		state: Init,
+		chF:   make(chan func() error),
 	}
 	runtime.SetFinalizer(&n, rmNode)
 	go n.backend()
@@ -168,9 +164,6 @@ func InitNode() Noder {
 	n.SyncHdrReqSem = MakeSemaphore(MAXSYNCHDRREQ)
 
 	n.link.port = uint16(Parameters.NodePort)
-	if Parameters.SPVService {
-		n.services += SPVService
-	}
 	n.relay = true
 	idHash := sha256.Sum256([]byte(IPv4Addr() + strconv.Itoa(Parameters.NodePort)))
 	binary.Read(bytes.NewBuffer(idHash[:8]), binary.LittleEndian, &(n.id))
@@ -179,14 +172,13 @@ func InitNode() Noder {
 	n.nbrNodes.init()
 	n.KnownAddressList.init()
 	n.local = n
-	n.TxPool.Init()
+	n.TXNPool.init()
 	n.eventQueue.init()
 	n.idCache.init()
-	n.filter = new(bloom.Filter)
 	n.cachedHashes = make([]Uint256, 0)
 	n.nodeDisconnectSubscriber = n.eventQueue.GetEvent("disconnect").Subscribe(events.EventNodeDisconnect, n.NodeDisconnect)
 	n.RequestedBlockList = make(map[Uint256]time.Time)
-	n.initConnection()
+	go n.initConnection()
 	go n.updateConnection()
 	go n.updateNodeInfo()
 
@@ -212,11 +204,11 @@ func (node *node) backend() {
 	}
 }
 
-func (node *node) ID() uint64 {
+func (node *node) GetID() uint64 {
 	return node.id
 }
 
-func (node *node) State() uint32 {
+func (node *node) GetState() uint32 {
 	return atomic.LoadUint32(&(node.state))
 }
 
@@ -224,15 +216,11 @@ func (node *node) GetConn() net.Conn {
 	return node.conn
 }
 
-func (node *node) Port() uint16 {
+func (node *node) GetPort() uint16 {
 	return node.port
 }
 
-func (node *node) LocalPort() uint16 {
-	return node.localPort
-}
-
-func (node *node) HttpInfoPort() int {
+func (node *node) GetHttpInfoPort() int {
 	return int(node.httpInfoPort)
 }
 
@@ -240,7 +228,7 @@ func (node *node) SetHttpInfoPort(nodeInfoPort uint16) {
 	node.httpInfoPort = nodeInfoPort
 }
 
-func (node *node) IsRelay() bool {
+func (node *node) GetRelay() bool {
 	return node.relay
 }
 
@@ -276,7 +264,7 @@ func (node *node) LocalNode() Noder {
 	return node.local
 }
 
-func (node *node) Height() uint64 {
+func (node *node) GetHeight() uint64 {
 	return node.height
 }
 
@@ -285,11 +273,43 @@ func (node *node) SetHeight(height uint64) {
 	node.height = height
 }
 
-func (node *node) Addr() string {
+func (node *node) Xmit(message interface{}) error {
+	log.Debug()
+	var buffer []byte
+	var err error
+	switch message.(type) {
+	case *transaction.Transaction:
+		log.Debug("TX transaction message")
+		txn := message.(*transaction.Transaction)
+		buffer, err = NewTxn(txn)
+		if err != nil {
+			log.Error("Error New Tx message: ", err)
+			return err
+		}
+		node.txnCnt++
+	case *ledger.Block:
+		log.Debug("TX block message")
+		block := message.(*ledger.Block)
+		buffer, err = NewBlock(block)
+		if err != nil {
+			log.Error("Error New Block message: ", err)
+			return err
+		}
+	default:
+		log.Warn("Unknown Xmit message type")
+		return errors.New("Unknown Xmit message type")
+	}
+
+	node.nbrNodes.Broadcast(buffer)
+
+	return nil
+}
+
+func (node *node) GetAddr() string {
 	return node.addr
 }
 
-func (node *node) Addr16() ([16]byte, error) {
+func (node *node) GetAddr16() ([16]byte, error) {
 	var result [16]byte
 	ip := net.ParseIP(node.addr).To16()
 	if ip == nil {
@@ -308,14 +328,14 @@ func (node *node) GetTime() int64 {
 
 func (node *node) WaitForSyncFinish() {
 	for {
-		log.Trace("BlockHeight is ", chain.DefaultLedger.Blockchain.BlockHeight)
-		bc := chain.DefaultLedger.Blockchain
+		log.Trace("BlockHeight is ", ledger.DefaultLedger.Blockchain.BlockHeight)
+		bc := ledger.DefaultLedger.Blockchain
 		log.Info("[", len(bc.Index), len(bc.BlockCache), len(bc.Orphans), "]")
 
 		heights, _ := node.GetNeighborHeights()
 		log.Trace("others height is ", heights)
 
-		if CompareHeight(uint64(chain.DefaultLedger.Blockchain.BlockHeight), heights) {
+		if CompareHeight(uint64(ledger.DefaultLedger.Blockchain.BlockHeight), heights) {
 			node.local.SetSyncHeaders(false)
 			break
 		}
@@ -328,78 +348,48 @@ func (node *node) GetLastRXTime() time.Time {
 	return node.Time
 }
 
-func (node *node) LoadFilter(filter *bloom.FilterLoad) {
-	node.filter.Reload(filter)
-}
-
-func (node *node) GetFilter() *bloom.Filter {
-	return node.filter
-}
-
 func (node *node) Relay(frmnode Noder, message interface{}) error {
 	log.Debug()
-	if frmnode != nil && node.LocalNode().IsSyncHeaders() == true {
+	if node.LocalNode().IsSyncHeaders() == true {
 		return nil
 	}
-
-	var buf []byte
+	var buffer []byte
 	var err error
-	for _, nbr := range node.GetNeighborNoder() {
-		if frmnode == nil || nbr.ID() != frmnode.ID() {
-
-			switch message.(type) {
-			case *Transaction:
-				log.Debug("TX transaction message")
-				txn := message.(*Transaction)
-
-				if nbr.ExistHash(txn.Hash()) {
-					continue
-				}
-
-				if nbr.IsRelay() || (nbr.GetFilter().IsLoaded() && nbr.GetFilter().MatchTxAndUpdate(txn)) {
-					if len(buf) == 0 {
-						buf, err = NewTxn(txn)
-					}
-				}
-				if err != nil {
-					log.Error("Error New Tx message: ", err)
-					return err
-				}
-				node.txnCnt++
-				nbr.Tx(buf)
-
-			case *Block:
-				log.Debug("TX block message")
-				block := message.(*Block)
-
-				if nbr.ExistHash(block.Hash()) {
-					continue
-				}
-
-				if nbr.GetFilter().IsLoaded() {
-					msg, err := NewMerkleBlockMsg(block, nbr.GetFilter())
-					if err != nil {
-						log.Error("Error New Block message: ", err)
-						return err
-					}
-					nbr.Tx(msg)
-				} else if nbr.IsRelay() {
-					if len(buf) == 0 {
-						buf, err = NewBlock(block)
-						if err != nil {
-							log.Error("Error New Block message: ", err)
-							return err
-						}
-					}
-					nbr.Tx(buf)
-				}
-			default:
-				log.Warn("Unknown Xmit message type")
-				return errors.New("Unknown Xmit message type")
-			}
+	isHash := false
+	switch message.(type) {
+	case *transaction.Transaction:
+		log.Debug("TX transaction message")
+		txn := message.(*transaction.Transaction)
+		buffer, err = NewTxn(txn)
+		if err != nil {
+			log.Error("Error New Tx message: ", err)
+			return err
 		}
+		node.txnCnt++
+	case *ledger.Block:
+		log.Debug("TX block message")
+		blkpayload := message.(*ledger.Block)
+		buffer, err = NewBlock(blkpayload)
+		if err != nil {
+			log.Error("Error new block message: ", err)
+			return err
+		}
+	default:
+		log.Warn("Unknown Relay message type")
+		return errors.New("Unknown Relay message type")
 	}
 
+	node.nbrNodes.RLock()
+	for _, n := range node.nbrNodes.List {
+		if n.state == Establish && n.relay == true &&
+			n.id != frmnode.GetID() {
+			if isHash && n.ExistHash(message.(Uint256)) {
+				continue
+			}
+			n.Tx(buffer)
+		}
+	}
+	node.nbrNodes.RUnlock()
 	return nil
 }
 
@@ -446,8 +436,8 @@ func (node node) IsSyncFailed() bool {
 
 func (node *node) needSync() bool {
 	heights, _ := node.GetNeighborHeights()
-	log.Info("nbr heigh-->", heights, chain.DefaultLedger.Blockchain.BlockHeight)
-	if CompareHeight(uint64(chain.DefaultLedger.Blockchain.BlockHeight), heights) {
+	log.Info("nbr heigh-->", heights, ledger.DefaultLedger.Blockchain.BlockHeight)
+	if CompareHeight(uint64(ledger.DefaultLedger.Blockchain.BlockHeight), heights) {
 		return false
 	}
 	return true
@@ -458,13 +448,13 @@ func (node *node) GetBestHeightNoder() Noder {
 	defer node.nbrNodes.RUnlock()
 	var bestnode Noder
 	for _, n := range node.nbrNodes.List {
-		if n.State() == Establish {
+		if n.GetState() == Establish {
 			if bestnode == nil {
 				if !n.IsSyncFailed() {
 					bestnode = n
 				}
 			} else {
-				if (n.Height() > bestnode.Height()) && !n.IsSyncFailed() {
+				if (n.GetHeight() > bestnode.GetHeight()) && !n.IsSyncFailed() {
 					bestnode = n
 				}
 			}
@@ -546,13 +536,4 @@ func (node *node) SetStopHash(hash Uint256) {
 
 func (node *node) GetStopHash() Uint256 {
 	return node.StopHash
-}
-
-func CompareHeight(blockHeight uint64, heights []uint64) bool {
-	for _, height := range heights {
-		if blockHeight < height {
-			return false
-		}
-	}
-	return true
 }

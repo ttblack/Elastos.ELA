@@ -5,26 +5,25 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 
-	chain "github.com/elastos/Elastos.ELA/blockchain"
-	"github.com/elastos/Elastos.ELA/config"
-	"github.com/elastos/Elastos.ELA/log"
+	"Elastos.ELA/common/config"
+	"Elastos.ELA/common/log"
+	"Elastos.ELA/common/serialization"
+	"Elastos.ELA/core/ledger"
 	. "github.com/elastos/Elastos.ELA/net/protocol"
-
-	. "github.com/elastos/Elastos.ELA.Utility/common"
 )
 
 type ping struct {
-	Hdr
+	messageHeader
 	height uint64
 }
 
 func NewPingMsg() ([]byte, error) {
 	var msg ping
-	msg.Hdr.Magic = config.Parameters.Magic
-	copy(msg.Hdr.CMD[0:7], "ping")
-	msg.height = uint64(chain.DefaultLedger.Store.GetHeight())
+	msg.messageHeader.Magic = config.Parameters.Magic
+	copy(msg.messageHeader.CMD[0:7], "ping")
+	msg.height = uint64(ledger.DefaultLedger.Store.GetHeight())
 	tmpBuffer := bytes.NewBuffer([]byte{})
-	WriteUint64(tmpBuffer, msg.height)
+	serialization.WriteUint64(tmpBuffer, msg.height)
 	b := new(bytes.Buffer)
 	err := binary.Write(b, binary.LittleEndian, tmpBuffer.Bytes())
 	if err != nil {
@@ -35,10 +34,10 @@ func NewPingMsg() ([]byte, error) {
 	s2 := s[:]
 	s = sha256.Sum256(s2)
 	buf := bytes.NewBuffer(s[:4])
-	binary.Read(buf, binary.LittleEndian, &(msg.Hdr.Checksum))
-	msg.Hdr.Length = uint32(len(b.Bytes()))
+	binary.Read(buf, binary.LittleEndian, &(msg.messageHeader.Checksum))
+	msg.messageHeader.Length = uint32(len(b.Bytes()))
 
-	m, err := msg.Serialize()
+	m, err := msg.Serialization()
 	if err != nil {
 		log.Error("Error Convert net message ", err.Error())
 		return nil, err
@@ -57,13 +56,13 @@ func (msg ping) Handle(node Noder) error {
 	return err
 }
 
-func (msg ping) Serialize() ([]byte, error) {
-	hdrBuf, err := msg.Hdr.Serialize()
+func (msg ping) Serialization() ([]byte, error) {
+	hdrBuf, err := msg.messageHeader.Serialization()
 	if err != nil {
 		return nil, err
 	}
 	buf := bytes.NewBuffer(hdrBuf)
-	err = WriteUint64(buf, msg.height)
+	err = serialization.WriteUint64(buf, msg.height)
 	if err != nil {
 		return nil, err
 	}
@@ -71,13 +70,13 @@ func (msg ping) Serialize() ([]byte, error) {
 
 }
 
-func (msg *ping) Deserialize(p []byte) error {
+func (msg *ping) Deserialization(p []byte) error {
 	buf := bytes.NewBuffer(p)
-	err := binary.Read(buf, binary.LittleEndian, &(msg.Hdr))
+	err := binary.Read(buf, binary.LittleEndian, &(msg.messageHeader))
 	if err != nil {
 		return err
 	}
 
-	msg.height, err = ReadUint64(buf)
+	msg.height, err = serialization.ReadUint64(buf)
 	return err
 }

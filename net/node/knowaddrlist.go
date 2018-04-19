@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/elastos/Elastos.ELA/log"
+	"Elastos.ELA/common/log"
 	. "github.com/elastos/Elastos.ELA/net/protocol"
 )
 

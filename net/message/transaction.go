@@ -6,22 +6,19 @@ import (
 	"encoding/binary"
 	"errors"
 
-	chain "github.com/elastos/Elastos.ELA/blockchain"
-	"github.com/elastos/Elastos.ELA/config"
+	"Elastos.ELA/common/config"
+	"Elastos.ELA/common/log"
+	"Elastos.ELA/core/transaction"
 	. "github.com/elastos/Elastos.ELA/errors"
-	"github.com/elastos/Elastos.ELA/log"
 	. "github.com/elastos/Elastos.ELA/net/protocol"
-
-	. "github.com/elastos/Elastos.ELA.Utility/core"
-	. "github.com/elastos/Elastos.ELA.Utility/common"
 )
 
 // Transaction message
 type trn struct {
-	Hdr
+	messageHeader
 	// TBD
 	//txn []byte
-	txn Transaction
+	txn transaction.Transaction
 	//hash common.Uint256
 }
 
@@ -43,23 +40,13 @@ func (msg trn) Handle(node Noder) error {
 	return nil
 }
 
-func NewTxnFromHash(hash Uint256) (*Transaction, error) {
-	txn, err := chain.DefaultLedger.GetTransactionWithHash(hash)
-	if err != nil {
-		log.Error("Get transaction with hash error: ", err.Error())
-		return nil, err
-	}
-
-	return txn, nil
-}
-
-func NewTxn(txn *Transaction) ([]byte, error) {
+func NewTxn(txn *transaction.Transaction) ([]byte, error) {
 	log.Debug()
 	var msg trn
 
-	msg.Hdr.Magic = config.Parameters.Magic
+	msg.messageHeader.Magic = config.Parameters.Magic
 	cmd := "tx"
-	copy(msg.Hdr.CMD[0:len(cmd)], cmd)
+	copy(msg.messageHeader.CMD[0:len(cmd)], cmd)
 	tmpBuffer := bytes.NewBuffer([]byte{})
 	txn.Serialize(tmpBuffer)
 	msg.txn = *txn
@@ -73,11 +60,11 @@ func NewTxn(txn *Transaction) ([]byte, error) {
 	s2 := s[:]
 	s = sha256.Sum256(s2)
 	buf := bytes.NewBuffer(s[:4])
-	binary.Read(buf, binary.LittleEndian, &(msg.Hdr.Checksum))
-	msg.Hdr.Length = uint32(len(b.Bytes()))
-	log.Debug("The message payload length is ", msg.Hdr.Length)
+	binary.Read(buf, binary.LittleEndian, &(msg.messageHeader.Checksum))
+	msg.messageHeader.Length = uint32(len(b.Bytes()))
+	log.Debug("The message payload length is ", msg.messageHeader.Length)
 
-	m, err := msg.Serialize()
+	m, err := msg.Serialization()
 	if err != nil {
 		log.Error("Error Convert net message ", err.Error())
 		return nil, err
@@ -86,8 +73,8 @@ func NewTxn(txn *Transaction) ([]byte, error) {
 	return m, nil
 }
 
-func (msg trn) Serialize() ([]byte, error) {
-	hdrBuf, err := msg.Hdr.Serialize()
+func (msg trn) Serialization() ([]byte, error) {
+	hdrBuf, err := msg.messageHeader.Serialization()
 	if err != nil {
 		return nil, err
 	}
@@ -97,9 +84,9 @@ func (msg trn) Serialize() ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-func (msg *trn) Deserialize(p []byte) error {
+func (msg *trn) Deserialization(p []byte) error {
 	buf := bytes.NewBuffer(p)
-	err := binary.Read(buf, binary.LittleEndian, &(msg.Hdr))
+	err := binary.Read(buf, binary.LittleEndian, &(msg.messageHeader))
 	err = msg.txn.Deserialize(buf)
 	if err != nil {
 		return err

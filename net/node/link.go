@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	. "github.com/elastos/Elastos.ELA/config"
-	"github.com/elastos/Elastos.ELA/log"
-	"github.com/elastos/Elastos.ELA/events"
+	. "Elastos.ELA/common/config"
+	"Elastos.ELA/common/log"
+	"Elastos.ELA/events"
 	msg "github.com/elastos/Elastos.ELA/net/message"
 	. "github.com/elastos/Elastos.ELA/net/protocol"
 )
@@ -25,11 +25,9 @@ type link struct {
 	addr         string    // The address of the node
 	conn         net.Conn  // Connect socket with the peer node
 	port         uint16    // The server port of the node
-	localPort    uint16    // The local port witch the node connected with
 	httpInfoPort uint16    // The node information server port of the node
 	Time         time.Time // The latest Time the node activity
-	rxBuf struct {
-		// The RX buffer of this node to solve mutliple packets problem
+	rxBuf        struct {  // The RX buffer of this node to solve mutliple packets problem
 		p   []byte
 		len int
 	}
@@ -90,7 +88,7 @@ func (node *node) rx() {
 			node.Time = t
 			unpackNodeBuf(node, buf[0:len])
 		case io.EOF:
-			log.Error("Rx io.EOF: ", err, ", node id is ", node.ID())
+			log.Error("Rx io.EOF: ", err, ", node id is ", node.GetID())
 			goto DISCONNECT
 		default:
 			log.Error("Read connection error ", err)
@@ -118,16 +116,11 @@ func (link *link) CloseConn() {
 	link.conn.Close()
 }
 
-func (node *node) initConnection() {
-	go node.listenNodePort()
-	go node.listenSPVPort()
-}
-
-func (node *node) listenNodePort() {
-	var err error
+func (n *node) initConnection() {
+	isTls := Parameters.IsTLS
 	var listener net.Listener
-
-	if Parameters.IsTLS {
+	var err error
+	if isTls {
 		listener, err = initTlsListen()
 		if err != nil {
 			log.Error("TLS listen failed")
@@ -140,13 +133,6 @@ func (node *node) listenNodePort() {
 			return
 		}
 	}
-
-	node.listenConnections(listener)
-}
-
-func (n *node) listenConnections(listener net.Listener) {
-	defer listener.Close()
-
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -161,17 +147,9 @@ func (n *node) listenConnections(listener net.Listener) {
 		node.addr, err = parseIPaddr(conn.RemoteAddr().String())
 		node.local = n
 		node.conn = conn
-		node.localPort = localPortFromConn(conn)
 		go node.rx()
 	}
-}
-
-func localPortFromConn(conn net.Conn) uint16 {
-	// Get node connection port
-	addr := conn.LocalAddr().String()
-	portIndex := strings.LastIndex(addr, ":")
-	port, _ := strconv.ParseUint(string([]byte(addr)[portIndex+1:]), 10, 16)
-	return uint16(port)
+	//TODO Release the net listen resouce
 }
 
 func initNonTlsListen() (net.Listener, error) {
@@ -322,7 +300,7 @@ func TLSDial(nodeAddr string) (net.Conn, error) {
 func (node *node) Tx(buf []byte) {
 	log.Debugf("TX buf length: %d\n%x", len(buf), buf)
 
-	if node.State() == Inactive {
+	if node.GetState() == Inactive {
 		return
 	}
 	_, err := node.conn.Write(buf)

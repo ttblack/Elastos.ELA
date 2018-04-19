@@ -8,13 +8,13 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/elastos/Elastos.ELA/config"
-	"github.com/elastos/Elastos.ELA/log"
+	"github.com/elastos/Elastos.ELA/common/config"
+	"github.com/elastos/Elastos.ELA/common/log"
 	. "github.com/elastos/Elastos.ELA/net/protocol"
 )
 
 type addr struct {
-	Hdr
+	messageHeader
 	nodeCnt   uint64
 	nodeAddrs []NodeAddr
 }
@@ -46,7 +46,7 @@ func NewAddrs(nodeaddrs []NodeAddr, count uint64) ([]byte, error) {
 	msg.Length = uint32(len(p.Bytes()))
 	log.Debug("The message payload length is ", msg.Length)
 
-	m, err := msg.Serialize()
+	m, err := msg.Serialization()
 	if err != nil {
 		log.Error("Error Convert net message ", err.Error())
 		return nil, err
@@ -55,9 +55,9 @@ func NewAddrs(nodeaddrs []NodeAddr, count uint64) ([]byte, error) {
 	return m, nil
 }
 
-func (msg addr) Serialize() ([]byte, error) {
+func (msg addr) Serialization() ([]byte, error) {
 	var buf bytes.Buffer
-	err := binary.Write(&buf, binary.LittleEndian, msg.Hdr)
+	err := binary.Write(&buf, binary.LittleEndian, msg.messageHeader)
 
 	if err != nil {
 		return nil, err
@@ -76,9 +76,9 @@ func (msg addr) Serialize() ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-func (msg *addr) Deserialize(p []byte) error {
+func (msg *addr) Deserialization(p []byte) error {
 	buf := bytes.NewBuffer(p)
-	err := binary.Read(buf, binary.LittleEndian, &(msg.Hdr))
+	err := binary.Read(buf, binary.LittleEndian, &(msg.messageHeader))
 	err = binary.Read(buf, binary.LittleEndian, &(msg.nodeCnt))
 	log.Debug("The address count is ", msg.nodeCnt)
 	msg.nodeAddrs = make([]NodeAddr, msg.nodeCnt)
@@ -101,7 +101,7 @@ func (msg addr) Handle(node Noder) error {
 		address := ip.To16().String() + ":" + strconv.Itoa(int(v.Port))
 		log.Info(fmt.Sprintf("The ip address is %s id is 0x%x", address, v.ID))
 
-		if v.ID == node.LocalNode().ID() {
+		if v.ID == node.LocalNode().GetID() {
 			continue
 		}
 		if node.LocalNode().NodeEstablished(v.ID) {
