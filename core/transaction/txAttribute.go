@@ -13,11 +13,12 @@ const (
 	Script         TransactionAttributeUsage = 0x20
 	DescriptionUrl TransactionAttributeUsage = 0x81
 	Description    TransactionAttributeUsage = 0x90
+	Memo           TransactionAttributeUsage = 0x91
 )
 
 func IsValidAttributeType(usage TransactionAttributeUsage) bool {
 	return usage == Nonce || usage == Script ||
-		usage == DescriptionUrl || usage == Description
+		usage == DescriptionUrl || usage == Description || usage == Memo
 }
 
 type TxAttribute struct {
