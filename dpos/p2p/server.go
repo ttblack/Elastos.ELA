@@ -168,6 +168,8 @@ type serverPeer struct {
 // newServerPeer returns a new IPeer instance. The peer needs to be set by
 // the caller.
 func newServerPeer(s *server) *serverPeer {
+
+	fmt.Println(">>>>>>>>> new Dpos Server Peer", s.cfg.PID.String())
 	return &serverPeer{
 		server:         s,
 		knownAddresses: make(map[string]struct{}),
@@ -180,8 +182,9 @@ func newServerPeer(s *server) *serverPeer {
 // the communications.
 func (sp *serverPeer) OnVersion(_ *peer.Peer, v *msg.Version) {
 	// Check if received PID matches PeerAddr PID.
+	fmt.Println(">>>>>>>>> OnVersion", common.BytesToHexString(v.PID[:]))
 	if sp.connReq != nil && !bytes.Equal(v.PID[:], sp.connReq.PID[:]) {
-		log.Infof("Disconnecting peer %v - version PID not match", sp)
+		log.Errorf("Disconnecting peer %v - version PID not match", sp)
 		sp.Disconnect()
 		return
 	}
@@ -190,6 +193,7 @@ func (sp *serverPeer) OnVersion(_ *peer.Peer, v *msg.Version) {
 	// connections.
 	if !sp.Inbound() {
 		addr := msg.NewAddr(sp.server.cfg.Localhost, sp.server.cfg.DefaultPort)
+		fmt.Println(">>>>>>> is no inbound", "self addr ", addr.Host, addr.Port)
 		sp.QueueMessage(addr, nil)
 	}
 
@@ -198,6 +202,7 @@ func (sp *serverPeer) OnVersion(_ *peer.Peer, v *msg.Version) {
 	sp.server.cfg.TimeSource.AddTimeSample(sp.Addr(), v.Timestamp)
 
 	// Add valid peer to the server.
+	fmt.Println(">>>>>>> add a valid peer to server", sp.ToPeer().String())
 	sp.server.AddPeer(sp)
 }
 
@@ -234,23 +239,26 @@ func (s *server) handleAddPeerMsg(state *peerState, sp *serverPeer) bool {
 
 	// Ignore new peers if we're shutting down.
 	if atomic.LoadInt32(&s.shutdown) != 0 {
-		log.Infof("New peer %s ignored - server is shutting down", sp)
+		log.Warnf("New peer %s ignored - server is shutting down", sp)
 		sp.Disconnect()
 		return false
 	}
 
 	// Ignore peers not exist in connect list.
 	if _, ok := state.connectPeers[sp.PID()]; !ok {
-		log.Infof("New peer %s ignored - not in connect list", sp)
+		log.Warnf("New peer %s ignored - not in connect list", sp)
 		sp.Disconnect()
 		return false
 	}
 
 	// Add the new peer and start it.
-	log.Debugf("New peer %s", sp)
+	log.Infof("New peer %s", sp)
 	if sp.Inbound() {
+
+		fmt.Println("New is Inbound", sp.PID().String())
 		state.inboundPeers[sp.ID()] = sp
 	} else {
+		fmt.Println("New is OutBound", sp.PID().String())
 		state.outboundPeers[sp.ID()] = sp
 	}
 
@@ -280,9 +288,9 @@ func (s *server) handleDonePeerMsg(state *peerState, sp *serverPeer) {
 			s.hostConnManger[ip]--
 			if s.hostConnManger[ip] <= 0 {
 				delete(s.hostConnManger, ip)
-				log.Debugf("handleDonePeerMsg  delete ip %s from %s,%s", ip, sp.Addr(), sp.LocalAddr().String())
+				fmt.Println(fmt.Sprintf("handleDonePeerMsg  delete ip %s from %s,%s", ip, sp.Addr(), sp.LocalAddr().String()))
 			}
-			log.Debug("handleDonePeerMsg hostConnManger ", s.hostConnManger)
+			fmt.Println("handleDonePeerMsg hostConnManger ", s.hostConnManger)
 		}
 		s.mu.Unlock()
 	}
@@ -293,11 +301,12 @@ func (s *server) handleDonePeerMsg(state *peerState, sp *serverPeer) {
 	}
 	if _, ok := list[sp.ID()]; ok {
 		delete(list, sp.ID())
-		log.Debugf("Removed peer %s", sp)
+		fmt.Println(fmt.Sprintf("Removed peer %s", sp))
 	}
 
 	// Remove connection request if peer not in connect list.
 	if sp.connReq != nil {
+		fmt.Println(">>>> handleDonePeerMsg connectReq != nil disconnect", "pid ", peer.PID(sp.connReq.PID).String())
 		s.connManager.Disconnect(sp.connReq.PID)
 	}
 
@@ -368,7 +377,9 @@ func (s *server) handleQuery(state *peerState, querymsg interface{}) {
 		// Loop through the new received connect peer addresses.
 		for _, pid := range msg.peers {
 			// Do not create connection to self.
+			fmt.Println("HandleQuery>>>>>>>>>>>>> peerss", "PID ", pid.String())
 			if pid.Equal(s.cfg.PID) {
+				fmt.Println("HandleQuery>>>>>>>>>>>>> is sellf pid , continue", "cfg.pid ", s.cfg.PID.String())
 				continue
 			}
 
@@ -528,6 +539,7 @@ func (s *server) pongNonce(pid peer.PID) uint64 {
 
 // newPeerConfig returns the configuration for the given serverPeer.
 func newPeerConfig(sp *serverPeer) *peer.Config {
+	fmt.Println("newPeerConfig ", "pid ", sp.server.cfg.PID.String())
 	return &peer.Config{
 		PID:           sp.server.cfg.PID,
 		Magic:         sp.server.cfg.MagicNumber,
@@ -558,6 +570,7 @@ func newPeerConfig(sp *serverPeer) *peer.Config {
 // for disconnection.
 func (s *server) inboundPeerConnected(conn net.Conn) {
 	// If hub service is enabled, intercept the connection.
+	fmt.Println("inboundPeerConnected >>>>> ", "remote ", conn.RemoteAddr().String(), " local ", conn.LocalAddr().String())
 	if s.hubService != nil {
 		conn = s.hubService.Intercept(conn)
 	}
@@ -568,12 +581,13 @@ func (s *server) inboundPeerConnected(conn net.Conn) {
 	}
 
 	sp := newServerPeer(s)
+	fmt.Println(" NewInboundPeer ", " sp.server.cfg.pid ", sp.server.cfg.PID.String(), " sp ", sp)
 	sp.Peer = peer.NewInboundPeer(newPeerConfig(sp))
 	addr := conn.RemoteAddr().String()
 	ip := common.GetIpFromAddr(addr)
 	if ip == "" {
 		conn.Close()
-		log.Error("inboundPeerConnected serious error should not be here ")
+		fmt.Println("inboundPeerConnected serious error should not be here ")
 		return
 	}
 	s.mu.Lock()
@@ -583,16 +597,16 @@ func (s *server) inboundPeerConnected(conn net.Conn) {
 
 	if s.hostConnManger[ip] < s.cfg.MaxNodePerHost {
 		s.hostConnManger[ip]++
-		log.Debugf("hostConnManger  ip %s  count %d ", ip, s.hostConnManger[ip])
+		fmt.Println(fmt.Sprintf("hostConnManger  ip %s  count %d ", ip, s.hostConnManger[ip]))
 		s.mu.Unlock()
 		sp.AssociateConnection(conn)
 	} else {
 		conn.Close()
-		log.Debugf("hostConnManger ip %s count %d OverMaxNodePerHost", ip, s.hostConnManger[ip])
+		fmt.Println(fmt.Sprintf("hostConnManger ip %s count %d OverMaxNodePerHost", ip, s.hostConnManger[ip]))
 		s.mu.Unlock()
 		return
 	}
-
+	fmt.Println("inboundPeerConnected >>> peerDone Handler", "pid =", sp.PID().String(), " sp ", sp)
 	go s.peerDoneHandler(sp)
 }
 
@@ -603,16 +617,19 @@ func (s *server) inboundPeerConnected(conn net.Conn) {
 // manager of the attempt.
 func (s *server) outboundPeerConnected(c *connmgr.ConnReq, conn net.Conn) {
 	sp := newServerPeer(s)
+
 	cfg := newPeerConfig(sp)
+	fmt.Println(" outboundPeerConnected ", " cfg.pid ", cfg.PID.String(), "c.addr", c.Addr.String(), " sp ", sp)
 	cfg.Target = hub.PIDTo16(c.PID)
 	p, err := peer.NewOutboundPeer(cfg, c.Addr.String())
 	if err != nil {
-		log.Debugf("Cannot create outbound peer %s: %v", c.Addr, err)
+		fmt.Println(fmt.Sprintf("Cannot create outbound peer %s: %v", c.Addr, err))
 		s.connManager.Disconnect(c.PID)
 	}
 	sp.Peer = p
 	sp.connReq = c
 	sp.AssociateConnection(conn)
+	fmt.Println("outboundPeerConnected peerDoneHandler ", " sp ", sp)
 	go s.peerDoneHandler(sp)
 }
 
@@ -886,7 +903,7 @@ func (s *server) ScheduleShutdown(duration time.Duration) {
 }
 
 func (s *server) dialTimeout(addr net.Addr) (net.Conn, error) {
-	log.Debugf("Server dial addr %s", addr)
+	fmt.Println(fmt.Sprintf("Server dial addr %s", addr))
 	addr, err := addrStringToNetAddr(addr.String())
 	if err != nil {
 		return nil, err
@@ -956,7 +973,10 @@ func NewServer(origCfg *Config) (*server, error) {
 		OnConnection:  s.outboundPeerConnected,
 		GetAddr: func(pid [33]byte) (net.Addr, error) {
 			na := s.addrManager.GetAddress(pid)
+			fmt.Println("pid ", peer.PID(pid).String())
+			fmt.Println(">>>>>> addrManager get address ", " na ", na)
 			if na == nil {
+				fmt.Println("can not find network ", "address ", peer.PID(pid).String())
 				return nil, fmt.Errorf("can not find network"+
 					" address for %s", peer.PID(pid))
 			}

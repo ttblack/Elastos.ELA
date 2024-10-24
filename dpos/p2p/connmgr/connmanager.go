@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/elastos/Elastos.ELA/common"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -144,7 +145,7 @@ func (cm *ConnManager) handleFailedConn(c *ConnReq) {
 	if d > maxRetryDuration {
 		d = maxRetryDuration
 	}
-	log.Debugf("Retrying connection to %v in %v", c, d)
+	fmt.Println(fmt.Sprintf("Retrying connection to %v in %v", c, d))
 	time.AfterFunc(d, func() {
 		cm.connect(c)
 	})
@@ -171,6 +172,7 @@ out:
 			switch msg := req.(type) {
 
 			case register:
+				fmt.Println("register pid ", common.BytesToHexString(msg.pid[:]))
 				connReq := &ConnReq{PID: msg.pid}
 				reqs[msg.pid] = connReq
 				msg.done <- connReq
@@ -182,8 +184,8 @@ out:
 						hex.EncodeToString(msg.pid[:]))
 					continue
 				}
-
-				log.Debugf("Removing: %v", connReq)
+				fmt.Println("removing pid ", common.BytesToHexString(msg.pid[:]))
+				log.Infof("Removing: %v", connReq)
 				delete(reqs, msg.pid)
 
 				connReq, ok = conns[msg.pid]
@@ -198,19 +200,19 @@ out:
 
 			case handleConnected:
 				connReq := msg.c
-
+				fmt.Println("handleConnect sucssed ", common.BytesToHexString(connReq.PID[:]))
 				if _, ok := reqs[connReq.PID]; !ok {
 					if msg.conn != nil {
 						msg.conn.Close()
 					}
-					log.Debugf("Ignoring connection for "+
-						"canceled connreq=%v", connReq)
+					fmt.Println(fmt.Sprintf("Ignoring connection for "+
+						"canceled connreq=%v", connReq))
 					continue
 				}
 
 				connReq.conn = msg.conn
 				conns[connReq.PID] = connReq
-				log.Debugf("Connected to %v", connReq)
+				fmt.Println(fmt.Sprintf("Connected to %v", connReq))
 				connReq.retryCount = 0
 				cm.failedAttempts = 0
 
@@ -227,7 +229,8 @@ out:
 				// An existing connection was located, mark as
 				// disconnected and execute disconnection
 				// callback.
-				log.Debugf("Disconnected from %v", connReq)
+				log.Infof("Disconnected from %v", connReq)
+				fmt.Println("Disconnected from ", connReq.String())
 				delete(conns, msg.pid)
 
 				if connReq.conn != nil {
@@ -235,8 +238,8 @@ out:
 				}
 
 				if _, ok := reqs[connReq.PID]; !ok {
-					log.Debugf("Ignoring connection for "+
-						"canceled conn req: %v", connReq)
+					fmt.Println(fmt.Sprintf("Ignoring connection for "+
+						"canceled conn req: %v", connReq))
 					continue
 				}
 
@@ -247,13 +250,13 @@ out:
 				connReq := msg.c
 
 				if _, ok := reqs[connReq.PID]; !ok {
-					log.Debugf("Ignoring connection for "+
-						"canceled conn req: %v", connReq)
+					fmt.Println(fmt.Sprintf("Ignoring connection for "+
+						"canceled conn req: %v", connReq))
 					continue
 				}
 
-				log.Debugf("Failed to connect to %v: %v",
-					connReq, msg.err)
+				fmt.Println(fmt.Sprintf("Failed to connect to %v: %v",
+					connReq, msg.err))
 				cm.handleFailedConn(connReq)
 			}
 
@@ -266,19 +269,21 @@ out:
 }
 
 func (cm *ConnManager) connect(c *ConnReq) {
-	log.Debugf("Attempting to connect to %v", c)
-
+	log.Infof("Attempting to connect to %v", c)
+	fmt.Println("Attempting to connect to ", c.String())
 	// Attempt to find the network address for the request.
 	na, err := cm.cfg.GetAddr(c.PID)
 	if err != nil {
 		select {
 		case cm.requests <- handleFailed{c, err}:
+			fmt.Println("handleFailed  ", c.String())
 		case <-cm.quit:
+			fmt.Println("quit connect ", c.String())
 		}
 		return
 	}
 	c.Addr = na
-
+	fmt.Println("dial target ", c.Addr.String())
 	conn, err := cm.cfg.Dial(c.Addr)
 	if err != nil {
 		select {
@@ -297,7 +302,9 @@ func (cm *ConnManager) connect(c *ConnReq) {
 // Connect assigns an id and dials a connection to the address of the
 // connection request.
 func (cm *ConnManager) Connect(pid [33]byte) {
+	fmt.Println("ConnManager >>> Connect target ", common.BytesToHexString(pid[:]))
 	if atomic.LoadInt32(&cm.stop) != 0 {
+		fmt.Println("connManager is stoped , can not connect")
 		return
 	}
 
@@ -326,6 +333,7 @@ func (cm *ConnManager) Connect(pid [33]byte) {
 // id. If permanent, the connection will be retried with an increasing backoff
 // duration.
 func (cm *ConnManager) Disconnect(pid [33]byte) {
+	fmt.Println("ConnManager >>> Disconnect target ", common.BytesToHexString(pid[:]))
 	if atomic.LoadInt32(&cm.stop) != 0 {
 		return
 	}
@@ -355,7 +363,7 @@ func (cm *ConnManager) Remove(pid [33]byte) {
 // listenHandler accepts incoming connections on a given listener.  It must be
 // run as a goroutine.
 func (cm *ConnManager) listenHandler(listener net.Listener) {
-	log.Infof("Server listening on %s", listener.Addr())
+	fmt.Println(fmt.Sprintf("Server listening on %s", listener.Addr()))
 	for atomic.LoadInt32(&cm.stop) == 0 {
 		conn, err := listener.Accept()
 		if err != nil {

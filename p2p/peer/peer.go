@@ -581,6 +581,7 @@ func CheckAndCreateTxMessage(hdr p2p.Header, r net.Conn) (p2p.Message, error) {
 func CheckAndCreateMessage(hdr p2p.Header, message p2p.Message, r net.Conn) (p2p.Message, error) {
 	// Check for message length
 	if hdr.Length > message.MaxLength() {
+		fmt.Println(" <<<<<<<<< ErrMsgSizeExceeded")
 		return nil, p2p.ErrMsgSizeExceeded
 	}
 
@@ -593,10 +594,12 @@ func CheckAndCreateMessage(hdr p2p.Header, message p2p.Message, r net.Conn) (p2p
 
 	// Verify checksum
 	if err := hdr.Verify(payload); err != nil {
+		fmt.Println(" <<<<<<<<< ErrInvalidPayload")
 		return nil, p2p.ErrInvalidPayload
 	}
 
 	if err := message.Deserialize(bytes.NewBuffer(payload)); err != nil {
+		fmt.Printf("deserialize message %s failed %s", message.CMD(), err.Error())
 		return nil, fmt.Errorf("deserialize message %s failed %s", message.CMD(), err.Error())
 	}
 
@@ -752,7 +755,7 @@ func (p *Peer) inHandler() {
 	// The timer is stopped when a new message is received and reset after it
 	// is processed.
 	idleTimer := time.AfterFunc(idleTimeout, func() {
-		log.Warnf("Peer %s no answer for %s -- disconnecting", p, idleTimeout)
+		log.Infof("Peer %s no answer for %s -- disconnecting", p, idleTimeout)
 		p.Disconnect()
 	})
 

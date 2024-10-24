@@ -392,7 +392,7 @@ func (p *Peer) readMessage() (p2p.Message, error) {
 		p.conn, p.cfg.Magic, p2p.ReadMessageTimeOut, p.createMessage)
 	// Use closures to log expensive operations so they are only run when
 	// the logging level requires it.
-	log.Debugf("%v", newLogClosure(func() string {
+	log.Warnf("%v", newLogClosure(func() string {
 		if err != nil {
 			return fmt.Sprintf("Read message failed, %s", err)
 		}
@@ -416,7 +416,7 @@ func (p *Peer) writeMessage(msg p2p.Message) error {
 
 	// Use closures to log expensive operations so they are only run when
 	// the logging level requires it.
-	log.Debugf("%v", newLogClosure(func() string {
+	log.Infof("%v", newLogClosure(func() string {
 		// Debug summary of message.
 		summary := messageSummary(msg)
 		if len(summary) > 0 {
@@ -765,6 +765,7 @@ func (p *Peer) readRemoteVersionMsg() ([]byte, error) {
 	// Verify peer public key.
 	pk, err := crypto.DecodePoint(verMsg.PID[:])
 	if err != nil {
+		fmt.Println("Verify peer public key.  decode point err ", "error ", err.Error(), " verMsg.PID ", PID(verMsg.PID).String())
 		return nil, errors.New("disconnecting peer invalided public key")
 	}
 
@@ -921,7 +922,7 @@ func (p *Peer) AssociateConnection(conn net.Conn) {
 		// and no point recomputing.
 		na, err := newNetAddress(p.conn.RemoteAddr(), 0)
 		if err != nil {
-			log.Errorf("Cannot create remote net address: %v", err)
+			fmt.Println(fmt.Sprintf("Cannot create remote net address: %v", err))
 			p.Disconnect()
 			return
 		}
@@ -930,7 +931,7 @@ func (p *Peer) AssociateConnection(conn net.Conn) {
 
 	go func() {
 		if err := p.start(); err != nil {
-			log.Debugf("Cannot start peer %v: %v", p, err)
+			fmt.Println(fmt.Sprintf("Cannot start peer Disconnect %v: %v", p, err))
 			p.Disconnect()
 		}
 	}()

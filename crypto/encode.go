@@ -9,6 +9,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"math/big"
 )
 
@@ -246,7 +247,7 @@ func DecodePoint(encodeData []byte) (*PublicKey, error) {
 	switch encodeData[0] {
 	case 0x02, 0x03: //compressed
 		if len(encodeData) != expectedLength+1 {
-			return nil, errors.New("the encodeData format is error")
+			return nil, errors.New(fmt.Sprintf("the encodeData format is error encodeData length:%d expected:%d ", len(encodeData), expectedLength+1))
 		}
 
 		yTilde := int(encodeData[0] & 1)

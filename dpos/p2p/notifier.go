@@ -7,6 +7,7 @@ package p2p
 
 import (
 	"bytes"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -80,10 +81,12 @@ func (n *Notifier) OnConnectPeers(peers []peer.PID) {
 }
 
 func (n *Notifier) OnNewPeer(pid peer.PID) {
+	fmt.Println("Nofityer new PPeer ", "pid ", pid.String())
 	n.newPeer <- pid
 }
 
 func (n *Notifier) OnDonePeer(pid peer.PID) {
+	fmt.Println("Nofityer done PPeer ", "pid ", pid.String())
 	n.donePeer <- pid
 }
 
@@ -140,6 +143,7 @@ func (n *Notifier) notifyHandler() {
 			// Stabled server turn to unstable.
 			if stable && len(connected)/2 < len(peers)/3 {
 				if n.flags&NFBadNetwork == NFBadNetwork {
+					fmt.Println("Stabled server turn to unstable. NFBadNetwork ")
 					go n.notify(NFBadNetwork)
 				}
 				startTimer()
@@ -148,6 +152,7 @@ func (n *Notifier) notifyHandler() {
 		case <-timer.C:
 			if len(connected)/2 < len(peers)/3 {
 				if n.flags&NFBadNetwork == NFBadNetwork {
+					fmt.Println("timer delay. NFBadNetwork ")
 					go n.notify(NFBadNetwork)
 				}
 				startTimer()
